@@ -7,28 +7,23 @@ from collections import defaultdict
 
 app = FastAPI()
 
-# -----------------------------
-# Config
-# -----------------------------
-EMAIL = "25ds1000094@ds.study.iitm.ac.in"
+EMAIL = "25ds1000094@ds.study.iitm.ac.inm"
 
-ALLOWED_ORIGINS = [
-    "https://app-mov4li.example.com",
-    # Add exam page origin here if provided
-]
+# Assigned values
+ALLOWED_ORIGIN = "https://app-mov4li.example.com"
 
-RATE_LIMIT = 10       # requests
-WINDOW = 10           # seconds
+RATE_LIMIT = 10
+WINDOW = 10
 
-# client_id -> list of timestamps
-rate_store = defaultdict(list)
+# Store requests per client
+client_requests = defaultdict(list)
 
 
 # -----------------------------
 # Middleware 1: Request Context
 # -----------------------------
 @app.middleware("http")
-async def request_context_middleware(request: Request, call_next):
+async def request_context(request: Request, call_next):
     request_id = request.headers.get("X-Request-ID")
 
     if not request_id:
@@ -39,6 +34,7 @@ async def request_context_middleware(request: Request, call_next):
     response = await call_next(request)
 
     response.headers["X-Request-ID"] = request_id
+
     return response
 
 
@@ -46,24 +42,24 @@ async def request_context_middleware(request: Request, call_next):
 # Middleware 2: Rate Limiter
 # -----------------------------
 @app.middleware("http")
-async def rate_limit_middleware(request: Request, call_next):
+async def rate_limiter(request: Request, call_next):
     client_id = request.headers.get("X-Client-Id", "unknown")
 
     now = time.time()
 
-    # Remove expired requests
-    rate_store[client_id] = [
-        t for t in rate_store[client_id]
+    # Remove old requests
+    client_requests[client_id] = [
+        t for t in client_requests[client_id]
         if now - t < WINDOW
     ]
 
-    if len(rate_store[client_id]) >= RATE_LIMIT:
+    if len(client_requests[client_id]) >= RATE_LIMIT:
         return JSONResponse(
             status_code=429,
             content={"detail": "Rate limit exceeded"}
         )
 
-    rate_store[client_id].append(now)
+    client_requests[client_id].append(now)
 
     return await call_next(request)
 
@@ -73,7 +69,9 @@ async def rate_limit_middleware(request: Request, call_next):
 # -----------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=[
+        ALLOWED_ORIGIN
+    ],
     allow_credentials=True,
     allow_methods=["GET", "OPTIONS"],
     allow_headers=["*"],
