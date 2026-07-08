@@ -9,9 +9,10 @@ app = FastAPI()
 
 EMAIL = "25ds1000094@ds.study.iitm.ac.in"
 
-ALLOWED_ORIGINS = [
-    "https://app-mov4li.example.com"
-]
+ALLOWED_ORIGINS=[
+        "https://app-mov4li.example.com",
+        "https://exam.sanand.workers.dev"
+    ],
 
 RATE_LIMIT = 10
 WINDOW = 10
