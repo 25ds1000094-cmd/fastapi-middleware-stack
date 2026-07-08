@@ -9,69 +9,83 @@ app = FastAPI()
 
 EMAIL = "25ds1000094@ds.study.iitm.ac.in"
 
-ALLOWED_ORIGINS=[
-        "https://app-mov4li.example.com",
-        "https://exam.sanand.workers.dev"
-    ],
+# Assigned CORS origins
+ALLOWED_ORIGINS = [
+    "https://app-mov4li.example.com",
+    "https://exam.sanand.workers.dev"
+]
 
-RATE_LIMIT = 10
-WINDOW = 10
+# Assigned rate limit
+RATE_LIMIT = 10       # requests
+WINDOW = 10           # seconds
 
-requests_by_client = defaultdict(list)
+# Store timestamps per client ID
+client_requests = defaultdict(list)
 
 
-# Request Context Middleware
+# -----------------------------
+# Middleware 1: Request Context
+# -----------------------------
 @app.middleware("http")
-async def request_context(request: Request, call_next):
+async def request_context_middleware(request: Request, call_next):
     request_id = request.headers.get("X-Request-ID")
 
-    if request_id is None:
+    if not request_id:
         request_id = str(uuid.uuid4())
 
     request.state.request_id = request_id
 
     response = await call_next(request)
 
+    # Always echo request ID in response header
     response.headers["X-Request-ID"] = request_id
 
     return response
 
 
-# Rate Limit Middleware
+# -----------------------------
+# Middleware 2: Rate Limiter
+# -----------------------------
 @app.middleware("http")
-async def rate_limit(request: Request, call_next):
-    client_id = request.headers.get("X-Client-Id", "default")
+async def rate_limit_middleware(request: Request, call_next):
+    client_id = request.headers.get("X-Client-Id", "unknown")
 
     now = time.time()
 
-    requests_by_client[client_id] = [
-        t for t in requests_by_client[client_id]
-        if now - t < WINDOW
+    # Remove requests outside the 10 second window
+    client_requests[client_id] = [
+        timestamp
+        for timestamp in client_requests[client_id]
+        if now - timestamp < WINDOW
     ]
 
-    if len(requests_by_client[client_id]) >= RATE_LIMIT:
+    # Block after 10 requests
+    if len(client_requests[client_id]) >= RATE_LIMIT:
         return JSONResponse(
             status_code=429,
             content={"detail": "Rate limit exceeded"}
         )
 
-    requests_by_client[client_id].append(now)
+    client_requests[client_id].append(now)
 
     return await call_next(request)
 
 
+# -----------------------------
+# Middleware 3: CORS
+# -----------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://app-mov4li.example.com",
-        "https://exam.sanand.workers.dev"
-    ],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
+# -----------------------------
+# Endpoint
+# -----------------------------
 @app.get("/ping")
 async def ping(request: Request):
     return {
