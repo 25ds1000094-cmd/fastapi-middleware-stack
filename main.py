@@ -60,10 +60,12 @@ async def rate_limit(request: Request, call_next):
     return await call_next(request)
 
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=[
+        "https://app-mov4li.example.com",
+        "https://exam.sanand.workers.dev"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
