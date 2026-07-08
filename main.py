@@ -1,92 +1,77 @@
-from fastapi import FastAPI, Request, Response, HTTPException
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-import time
 import uuid
-import threading
+import time
+from collections import defaultdict
 
 app = FastAPI()
 
-# --- Configuration (your assigned values) ---
-ALLOWED_ORIGINS = [
-    "https://app-mov4li.example.com",
-    # allow the exam verification page origin so browser checks can run;
-    # replace or add the exact exam origin if given by grader (example):
-    "https://grader.example.com"
-]
-RATE_LIMIT_BUCKET = 10           # B = 10 requests
-RATE_LIMIT_WINDOW_SECONDS = 10   # window = 10s
+EMAIL = "25ds1000094@ds.study.iitm.ac.in"
 
-# --- Middleware 2: Scoped CORS ---
-# Use CORSMiddleware but with only the allowed origins (no '*').
+ALLOWED_ORIGINS = [
+    "https://app-mov4li.example.com"
+]
+
+RATE_LIMIT = 10
+WINDOW = 10
+
+requests_by_client = defaultdict(list)
+
+
+# Request Context Middleware
+@app.middleware("http")
+async def request_context(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID")
+
+    if request_id is None:
+        request_id = str(uuid.uuid4())
+
+    request.state.request_id = request_id
+
+    response = await call_next(request)
+
+    response.headers["X-Request-ID"] = request_id
+
+    return response
+
+
+# Rate Limit Middleware
+@app.middleware("http")
+async def rate_limit(request: Request, call_next):
+    client_id = request.headers.get("X-Client-Id", "default")
+
+    now = time.time()
+
+    requests_by_client[client_id] = [
+        t for t in requests_by_client[client_id]
+        if now - t < WINDOW
+    ]
+
+    if len(requests_by_client[client_id]) >= RATE_LIMIT:
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Rate limit exceeded"}
+        )
+
+    requests_by_client[client_id].append(now)
+
+    return await call_next(request)
+
+
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_methods=["GET", "OPTIONS"],
+    allow_credentials=True,
+    allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Request-ID"],
-    allow_credentials=False,
 )
 
-# --- Middleware 3: Simple per-client rate limiter (in-memory) ---
-# This is a threadsafe sliding window counter per client id.
-class RateLimiter:
-    def __init__(self):
-        self.lock = threading.Lock()
-        # client_id -> list of timestamps (float seconds)
-        self.clients = {}
 
-    def is_allowed(self, client_id: str) -> bool:
-        now = time.time()
-        window_start = now - RATE_LIMIT_WINDOW_SECONDS
-        with self.lock:
-            lst = self.clients.get(client_id, [])
-            # keep only timestamps inside the window
-            lst = [t for t in lst if t > window_start]
-            if len(lst) >= RATE_LIMIT_BUCKET:
-                # too many requests
-                self.clients[client_id] = lst
-                return False
-            # allow this request, record timestamp
-            lst.append(now)
-            self.clients[client_id] = lst
-            return True
-
-rate_limiter = RateLimiter()
-
-@app.middleware("http")
-async def client_rate_limit_middleware(request: Request, call_next):
-    # Read X-Client-Id header. If missing, treat as an empty string (or you can require it).
-    client_id = request.headers.get("x-client-id", "")
-    # check the rate limiter
-    if not rate_limiter.is_allowed(client_id):
-        return JSONResponse(status_code=429, content={"detail": "Too Many Requests"})
-    response = await call_next(request)
-    return response
-
-# --- Middleware 1: Request context (X-Request-ID) ---
-@app.middleware("http")
-async def request_id_middleware(request: Request, call_next):
-    incoming_id = request.headers.get("x-request-id")
-    if incoming_id and incoming_id.strip() != "":
-        request_id = incoming_id
-    else:
-        request_id = str(uuid.uuid4())
-    # attach to request.state for handlers to read
-    request.state.request_id = request_id
-
-    # Call endpoint / next middleware
-    response: Response = await call_next(request)
-
-    # Always set X-Request-ID header on the response
-    response.headers["X-Request-ID"] = request_id
-    return response
-
-# --- Endpoint: GET /ping ---
 @app.get("/ping")
 async def ping(request: Request):
-    # Simulate a "logged-in email" for the grader; in a real app read from auth.
-    # Put your actual email here or the one grader expects (example):
-    email = "youremail@example.com"
-    request_id = getattr(request.state, "request_id", None)
-    return {"email": email, "request_id": request_id}
+    return {
+        "email": EMAIL,
+        "request_id": request.state.request_id
+    }
