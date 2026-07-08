@@ -70,13 +70,12 @@ async def rate_limiter(request: Request, call_next):
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        ALLOWED_ORIGIN
+        "https://app-mov4li.example.com"
     ],
     allow_credentials=True,
-    allow_methods=["GET", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 # -----------------------------
 # Endpoint
